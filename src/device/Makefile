@@ -93,8 +93,8 @@ $(OBJDIR)/genobj/%.d: $(OBJDIR)/gensrc/%
 $(DEVGLUE_OBJ): $(LIB_OBJS)
 	$(NVCC) $(NVCUFLAGS) -dlink $^ -o $@
 
-# Minimal device glue for main libnccl.so (common + onerank + device_table only)
-$(OBJDIR)/device_glue_min.o: $(OBJDIR)/common.cu.o $(OBJDIR)/onerank.cu.o $(OBJDIR)/genobj/device_table.cu.o
+# Minimal device glue for main libnccl.so (common + onerank only)
+$(OBJDIR)/device_glue_min.o: $(OBJDIR)/common.cu.o $(OBJDIR)/onerank.cu.o
 	$(NVCC) $(NVCUFLAGS) -dlink $^ -o $@
 
 # Lightweight device glue for per-group .so (only common + onerank)
@@ -102,7 +102,9 @@ COMMON_OBJS = $(patsubst %, $(OBJDIR)/%.o, $(SRCS))
 $(DEVGLUE_GROUP): $(COMMON_OBJS)
 	$(NVCC) $(NVCUFLAGS) -dlink $^ -o $@
 
-$(MANIFEST): $(LIB_OBJS) $(DEVGLUE_OBJ)
+# Manifest for main libnccl.so: only common + onerank + minimal glue
+# (per-op objects go into their own .so, not here)
+$(MANIFEST): $(OBJDIR)/common.cu.o $(OBJDIR)/onerank.cu.o $(OBJDIR)/device_glue_min.o
 	@echo $^ > $@
 
 -include $(wildcard $(OBJDIR)/*.d)
