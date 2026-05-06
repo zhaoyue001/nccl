@@ -1,0 +1,12 @@
+--- enqueue.cc
++++ enqueue.cc
+@@ -1327,6 +1327,9 @@ ncclResult_t ncclLaunchKernel(struct ncclComm* comm, struct ncclKernelPlan* pla
+   // Use per-op .so launch function if registered; fall back to default cudaLaunchKernel
+   ncclOpLaunchFunc_t launchFn = plan->kernelLaunchFn;
++
++  fprintf(stderr, "LAUNCH dev%d: fn=%p lfn=%p grid=(%u,%u,%u) block=(%u,%u,%u) smem=%zu channels=%d\n",
++    comm->cudaDev, fn, (void*)launchFn, grid.x, grid.y, grid.z, block.x, block.y, block.z, smem, plan->channelCount);
+ 
+   #if CUDART_VERSION >= 11080
+ 
+ 

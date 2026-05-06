@@ -61,6 +61,15 @@ ncclResult_t ncclInitKernelsForDevice(int cudaArch, size_t* maxStackSize) {
     }
   next_kernel:;
   }
+  // Also set attributes for func-registered kernels (per-op .so and built-in P2P)
+  for (int k = 0; k < NCCL_MAX_DEV_FUNCS; k++) {
+    void* fn = ncclDevKernelForFunc[k];
+    if (fn == nullptr) continue;
+    if (ncclShmemDynamicSize(cudaArch) != 0) {
+      cudaFuncSetAttribute(fn,
+        cudaFuncAttributeMaxDynamicSharedMemorySize, ncclShmemDynamicSize(cudaArch));
+    }
+  }
   return result;
 }
 
@@ -1327,6 +1336,8 @@ ncclResult_t ncclLaunchKernel(struct ncclComm* comm, struct ncclKernelPlan* plan
   // Use per-op .so launch function if registered; fall back to default cudaLaunchKernel
   ncclOpLaunchFunc_t launchFn = plan->kernelLaunchFn;
 
+
+
   #if CUDART_VERSION >= 11080
   int driverVersion;
   NCCLCHECK(ncclCudaDriverVersion(&driverVersion));
@@ -1372,8 +1383,8 @@ ncclResult_t ncclLaunchKernel(struct ncclComm* comm, struct ncclKernelPlan* plan
     if (launchFn) {
       launchFn(fn, grid, block, args, smem, launchStream);
     } else {
-      WARN("NCCL: no launch function registered for kernel plan");
-      return ncclInternalError;
+      // Fall back to direct cudaLaunchKernel for built-in kernels (P2P ops)
+      CUDACHECK(cudaLaunchKernel(fn, grid, block, args, smem, launchStream));
     }
     return ncclSuccess;
   }
@@ -1382,8 +1393,8 @@ ncclResult_t ncclLaunchKernel(struct ncclComm* comm, struct ncclKernelPlan* plan
   if (launchFn) {
     launchFn(fn, grid, block, args, smem, launchStream);
   } else {
-    WARN("NCCL: no launch function registered for kernel plan");
-    return ncclInternalError;
+    // Fall back to direct cudaLaunchKernel for built-in kernels (P2P ops)
+    CUDACHECK(cudaLaunchKernel(fn, grid, block, args, smem, launchStream));
   }
   return ncclSuccess;
 }

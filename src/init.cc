@@ -96,9 +96,9 @@ static ncclResult_t ncclInit() {
 
 // Load all per-operation .so files from the ops directory
 static void ncclLoadOps() {
-  static bool opsLoaded = false;
-  if (opsLoaded) return;
-  opsLoaded = true;
+  // NOTE: deliberately NOT guarded by "static bool loaded" — each comm init
+  // must call per-op register functions with its OWN device active so that
+  // cudaFuncSetAttribute sets the correct per-device shared memory config.
   
   // Try multiple locations for the ops directory
   const char* searchPaths[] = {
