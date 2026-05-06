@@ -26,10 +26,11 @@ extern pthread_mutex_t ncclDebugLock;
 extern FILE *ncclDebugFile;
 extern ncclResult_t getHostName(char* hostname, int maxlen, const char delim);
 
+__attribute__((visibility("default")))
 void ncclDebugLog(ncclDebugLogLevel level, unsigned long flags, const char *filefunc, int line, const char *fmt, ...) __attribute__ ((format (printf, 5, 6)));
 
 // Let code temporarily downgrade WARN into INFO
-extern thread_local int ncclDebugNoWarn;
+extern __attribute__((visibility("default"))) thread_local int ncclDebugNoWarn;
 extern char ncclLastError[];
 
 #define WARN(...) ncclDebugLog(NCCL_LOG_WARN, NCCL_ALL, __FILE__, __LINE__, __VA_ARGS__)

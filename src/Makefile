@@ -57,7 +57,7 @@ $(BUILDDIR)/obj/device/device_glue_min.o: $(DEVMANIFEST)
 	$(MAKE) -C ./device device_glue_min.o
 
 # Build per-operation .so files
-ops: $(DEVMANIFEST)
+ops: $(DEVMANIFEST) lib
 	$(MAKE) -C ./device ops
 
 $(DEVMANIFEST): ALWAYS_REBUILD $(INCTARGETS)

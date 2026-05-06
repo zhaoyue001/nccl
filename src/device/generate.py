@@ -123,7 +123,7 @@ kernel_funcs = sorted(set(best_kernel(*fn) for fn in primary_funcs))
 # device_table.cu no longer generated — device-side dispatch table removed.
 # All dispatch is now host-side via specialized kernel + per-op launch function.
 
-# Generate host_table.cc (needed for ncclDevFuncRowToId mapping)
+# Generate host_table.cc (ncclDevFuncRowToId mapping only — runtime arrays in ops_core.cc)
 with open(os.path.join(gensrc, "host_table.cc"), "w") as f:
   out = f.write
   out('#include "device.h"\n\n')
@@ -136,43 +136,7 @@ with open(os.path.join(gensrc, "host_table.cc"), "w") as f:
       comment = " // " + paste(" ", *fn)
     out("/*%4d*/ %d,%s\n" % (index, fn_id, comment))
     index += 1
-  out("-1};\n\n")
-  for kfn in kernel_funcs:
-    cudart, _ = required_cuda(*kfn)
-    sym = paste("_", "ncclDevKernel", *kfn)
-    if cudart != 0: out("#if CUDART_VERSION >= %d\n" % cudart)
-    out("__global__ void %s(struct ncclDevComm*, uint64_t, struct ncclWork*);\n" % sym)
-    if cudart != 0: out("#endif\n")
-  out("\nextern int const ncclDevKernelCount = %d;\n" % len(kernel_funcs))
-  out("extern void* const ncclDevKernelList[] = {\n")
-  index = 0
-  for kfn in kernel_funcs:
-    cudart, _ = required_cuda(*kfn)
-    sym = paste("_", "ncclDevKernel", *kfn)
-    if cudart != 0: out("#if CUDART_VERSION >= %d\n" % cudart)
-    out("/*%4d*/ (void*)%s,\n" % (index, sym));
-    if cudart != 0: out("#else\n" "/*%4d*/ nullptr,\n" "#endif\n" % index)
-    index += 1
-  out("nullptr};\n\n")
-  out("extern void* const ncclDevKernelForFunc[] = {\n")
-  index = 0
-  for fn in primary_funcs:
-    kfn = best_kernel(*fn)
-    sym = paste("_", "ncclDevKernel", *kfn)
-    cudart, _ = required_cuda(*kfn)
-    if cudart != 0: out("#if CUDART_VERSION >= %d\n" % cudart)
-    out("/*%4d*/ (void*)%s,\n" % (index, sym))
-    if cudart != 0: out("#else\n" "/*%4d*/ nullptr,\n" "#endif\n" % index)
-    index += 1
-  out("nullptr};\n\n")
-  out("extern bool const ncclDevKernelForFuncIsSpecialized[] = {\n")
-  index = 0
-  for fn in primary_funcs:
-    kfn = best_kernel(*fn)
-    specialized = "1" if fn == kfn else "0"
-    out("/*%4d*/ %s,\n" % (index, specialized))
-    index += 1
-  out("0};\n")
+  out("-1};\n")
 
 def impl_filename(coll, redop, ty, algo, proto):
   return "%s.cu" % paste("_", coll_camel_to_lower[coll], redop and redop.lower(), ty)
@@ -295,12 +259,7 @@ for group_name, info in sorted(group_info.items()):
     
     # Offsets into the global tables — compute from primary_to_index
     out(f"// Register this group's device functions and kernels with the main runtime\n")
-    out(f"extern \"C\" void ncclOpRegister_{group_name}() {{\n")
-    
-    # Register kernel function pointers
-    out(f"  for (int i = 0; i < {len(kfns)}; i++) {{\n")
-    out(f"    ncclRegisterKernel(_{group_name}_kernelList[i]);\n")
-    out(f"  }}\n\n")
+    out(f"extern \"C\" __attribute__((visibility(\"default\"))) void ncclOpRegister_{group_name}() {{\n")
     
     # Register func→kernel mappings for each primary function in this group
     # Pass the launch function so main .so delegates cudaLaunchKernel to this .so
@@ -340,10 +299,10 @@ with open(os.path.join(gensrc, "group_build.mk"), "w") as f:
     out(f"\t@printf \"%-15s %s\\n\" \"Dlink\" \"{group_name}\"\n")
     out(f"\t$(NVCC) $(NVCUFLAGS) -dlink {cu_objs} {common_o} {onerank_o} -o $@\n\n")
     
-    out(f"$(OPSDIR)/nccl_{group_name}.so: {group_glue} $(OBJDIR)/genobj/{group_name}_register.o\n")
+    out(f"$(OPSDIR)/nccl_{group_name}.so: {group_glue} $(OBJDIR)/genobj/{group_name}_register.o {cu_objs} {common_o} {onerank_o}\n")
     out(f"\t@printf \"%-15s %s\\n\" \"Linking\" \"{group_name}\"\n")
     out(f"\t@mkdir -p $(OPSDIR)\n")
-    out(f"\t$(CXX) $(CXXFLAGS) -shared -o $@ $(OBJDIR)/genobj/{group_name}_register.o {group_glue} -L$(CUDA_LIB) -lcudart\n\n")
+    out(f"\t$(CXX) $(CXXFLAGS) -shared -o $@ $(OBJDIR)/genobj/{group_name}_register.o {cu_objs} {common_o} {onerank_o} {group_glue} -L$(CUDA_LIB) -lcudart -L$(BUILDDIR)/lib -lnccl -Wl,-rpath,$(BUILDDIR)/lib\n\n")
   
   out(f"ops: $(GROUPS:%=$(OPSDIR)/nccl_%.so)\n")
   out(f".PHONY: ops\n")

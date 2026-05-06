@@ -49,7 +49,7 @@ define DEPENDS
  echo "$(patsubst %.d,%.o,$1) $1: " $$files > $1
 endef
 
-all: $(MANIFEST) ops
+all: $(MANIFEST)
 
 ifeq (1,1)
 # Case if the <gensrc> directory is generated on-demand:
@@ -102,9 +102,14 @@ COMMON_OBJS = $(patsubst %, $(OBJDIR)/%.o, $(SRCS))
 $(DEVGLUE_GROUP): $(COMMON_OBJS)
 	$(NVCC) $(NVCUFLAGS) -dlink $^ -o $@
 
+# Host table for ncclDevFuncRowToId mapping
+HOST_TABLE_OBJ := $(OBJDIR)/genobj/host_table.o
+$(HOST_TABLE_OBJ): $(OBJDIR)/gensrc/host_table.cc
+	$(call COMPILE,$@,$(OBJDIR)/gensrc/host_table.cc)
+
 # Manifest for main libnccl.so: only common + onerank + minimal glue
 # (per-op objects go into their own .so, not here)
-$(MANIFEST): $(OBJDIR)/common.cu.o $(OBJDIR)/onerank.cu.o $(OBJDIR)/device_glue_min.o
+$(MANIFEST): $(OBJDIR)/common.cu.o $(OBJDIR)/onerank.cu.o $(OBJDIR)/device_glue_min.o $(HOST_TABLE_OBJ)
 	@echo $^ > $@
 
 -include $(wildcard $(OBJDIR)/*.d)

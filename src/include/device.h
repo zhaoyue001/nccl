@@ -402,7 +402,7 @@ extern int ncclDevKernelCount;
 extern void* ncclDevKernelList[NCCL_MAX_DEV_KERNELS];
 
 // Table of most specialized kernel function to run given func index.
-extern int ncclDevFuncRowToId[NCCL_MAX_DEV_FUNCS];
+extern const int ncclDevFuncRowToId[];
 extern void* ncclDevKernelForFunc[NCCL_MAX_DEV_FUNCS];
 extern bool ncclDevKernelForFuncIsSpecialized[NCCL_MAX_DEV_FUNCS];
 extern ncclOpLaunchFunc_t ncclDevKernelForFuncLaunch[NCCL_MAX_DEV_FUNCS];
