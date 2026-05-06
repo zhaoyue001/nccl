@@ -85,8 +85,8 @@ def best_kernel(coll, redop, ty, algo, proto):
   def best(coll, redop, ty, algo, proto):
     if coll=="Nop": return ("Generic", None, None, None, None)
     if coll=="SendRecv": return ("SendRecv", None, None, None, None)
-    if coll in ("AllGather","Broadcast"): return (coll, None, None, "RING", "LL")
-    return (coll, "Sum", ty, ("TREE" if algo=="TREE" else "RING"), "LL")
+    if coll in ("AllGather","Broadcast"): return (coll, None, None, "RING", proto)
+    return (coll, "Sum", ty, ("TREE" if algo=="TREE" else "RING"), proto)
   kfn = equivalent_primary(*best(coll, redop, ty, algo, proto))
   if not func_filter(*kfn): return ("Generic", None, None, None, None)
   return kfn
@@ -229,7 +229,8 @@ for group_name, info in sorted(group_info.items()):
   with open(os.path.join(gensrc, f"{group_name}_register.cc"), "w") as f:
     out = f.write
     out('#include "device.h"\n')
-    out('#include <cuda_runtime.h>\n\n')
+    out('#include <cuda_runtime.h>\n')
+    out('extern "C" void ncclOpSetShmemAttr(void* fn, size_t smem);\n\n')
     
     # Forward declarations for kernels used in this group
     seen_kernels = set()
@@ -249,13 +250,11 @@ for group_name, info in sorted(group_info.items()):
       out(f"  (void*){sym},\n")
     out(f"  nullptr\n}};\n\n")
     
-    out(f"static int _{group_name}_kernelCount = {len(kfns)};\n\n")
-    
-    # Launch function — each per-op .so provides its own cudaLaunchKernel wrapper
-    out(f"// Launch function: called by main libnccl.so to launch kernels from this .so\n")
+    # Launch function — per-op .so calls cudaLaunchKernel with shared memory config
     out(f"static void ncclOpLaunch_{group_name}(void* fn, dim3 grid, dim3 block, void** args, size_t smem, cudaStream_t stream) {{\n")
+    out(f"  ncclOpSetShmemAttr(fn, smem);\n")
     out(f"  cudaLaunchKernel(fn, grid, block, args, smem, stream);\n")
-    out(f"}}\n\n")
+    out(f"}}\n")
     
     # Offsets into the global tables — compute from primary_to_index
     out(f"// Register this group's device functions and kernels with the main runtime\n")
@@ -302,7 +301,7 @@ with open(os.path.join(gensrc, "group_build.mk"), "w") as f:
     out(f"$(OPSDIR)/nccl_{group_name}.so: {group_glue} $(OBJDIR)/genobj/{group_name}_register.o {cu_objs} {common_o} {onerank_o}\n")
     out(f"\t@printf \"%-15s %s\\n\" \"Linking\" \"{group_name}\"\n")
     out(f"\t@mkdir -p $(OPSDIR)\n")
-    out(f"\t$(CXX) $(CXXFLAGS) -shared -o $@ $(OBJDIR)/genobj/{group_name}_register.o {cu_objs} {common_o} {onerank_o} {group_glue} -L$(CUDA_LIB) -lcudart -L$(BUILDDIR)/lib -lnccl -Wl,-rpath,$(BUILDDIR)/lib\n\n")
+    out(f"\t$(NVCC) -shared -o $@ $(OBJDIR)/genobj/{group_name}_register.o {cu_objs} {common_o} {onerank_o} {group_glue} -L$(BUILDDIR)/lib -lnccl -lcuda -Xlinker -rpath -Xlinker $(BUILDDIR)/lib\n\n")
   
   out(f"ops: $(GROUPS:%=$(OPSDIR)/nccl_%.so)\n")
   out(f".PHONY: ops\n")
@@ -312,7 +311,7 @@ with open(os.path.join(gensrc, "register_rules.mk"), "w") as f:
   out = f.write
   for group_name in sorted(group_info.keys()):
     out(f"$(OBJDIR)/genobj/{group_name}_register.o: $(OBJDIR)/gensrc/{group_name}_register.cc\n")
-    out(f"\t$(call COMPILE.cc,$@,$<)\n\n")
+    out(f"\t$(NVCC) $(NVCUFLAGS) -dc $< -o $@\n\n")
 
 # ===== Generate the original .cu files =====
 with open(os.path.join(gensrc, "rules.mk"), "w") as f:
