@@ -26,10 +26,10 @@ func_pattern = sys.argv[2:3]
 if func_pattern and func_pattern[0]:
   import re
   func_pattern = func_pattern[0]
-  func_pattern = func_pattern.replace("*", "[^ ]*")
+  func_pattern = func_pattern.replace("*", ".*")
   func_pattern += "$"
   def func_filter(*fn):
-    return None is not re.match(func_pattern, paste(" ", *fn), flags=re.IGNORECASE)
+    return None is not re.search(func_pattern, paste(" ", *fn), flags=re.IGNORECASE)
 else:
   def func_filter(coll, redop, ty, algo, proto):
     return True
