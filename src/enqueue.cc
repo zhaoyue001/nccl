@@ -872,8 +872,10 @@ static ncclResult_t scheduleP2pTasksToPlan(
 
   plan->threadPerBlock = std::max(plan->threadPerBlock, NCCL_MAX_NTHREADS);
   if (!plan->kernelSpecialized) {
-    plan->kernelFn = ncclDevKernelForFunc[ncclDevFuncId_P2p()];
-    plan->kernelSpecialized = ncclDevKernelForFuncIsSpecialized[ncclDevFuncId_P2p()];
+    int fid = ncclDevFuncId_P2p();
+    plan->kernelFn = ncclDevKernelForFunc[fid];
+    plan->kernelSpecialized = ncclDevKernelForFuncIsSpecialized[fid];
+    plan->kernelLaunchFn = ncclDevKernelForFuncLaunch[fid];
   }
 
   // Compute how much to split operations
