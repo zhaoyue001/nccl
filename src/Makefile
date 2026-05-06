@@ -47,7 +47,7 @@ LDFLAGS    += -L${CUDA_LIB} -l$(CUDARTLIB) -lpthread -lrt -ldl -Wl,--export-dyna
 DEVMANIFEST := $(BUILDDIR)/obj/device/manifest
 
 ##### rules
-build : lib staticlib ops
+build : ops lib staticlib
 
 lib : $(INCTARGETS) $(LIBDIR)/$(LIBTARGET) $(PKGDIR)/$(PKGTARGET)
 

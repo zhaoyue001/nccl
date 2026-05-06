@@ -57,12 +57,19 @@ ncclResult_t ncclCudaGetCapturingGraph(
       #if CUDART_VERSION >= 11030
         cudaStreamCaptureStatus status;
         unsigned long long gid;
-        CUDACHECK(cudaStreamGetCaptureInfo_v2(stream, &status, &gid, &graph->graph, nullptr, nullptr));
-        if (status != cudaStreamCaptureStatusActive) {
+        cudaError_t e = cudaStreamGetCaptureInfo_v2(stream, &status, &gid, &graph->graph, nullptr, nullptr);
+        if (e == cudaErrorStubLibrary) {
+          // CUDA driver >= 13.0 removed this function; graph capture not supported.
           graph->graph = nullptr;
-          gid = ULLONG_MAX;
+          graph->graphId = ULLONG_MAX;
+        } else {
+          CUDACHECK(e);
+          if (status != cudaStreamCaptureStatusActive) {
+            graph->graph = nullptr;
+            gid = ULLONG_MAX;
+          }
+          graph->graphId = gid;
         }
-        graph->graphId = gid;
       #endif
     }
   #endif
@@ -347,7 +354,12 @@ ncclResult_t ncclStrongStreamWaitStream(
       unsigned long long bGraphId;
       cudaGraphNode_t const* bNodes;
       size_t bCount = 0;
-      CUDACHECK(cudaStreamGetCaptureInfo_v2(b, &status, &bGraphId, nullptr, &bNodes, &bCount));
+      cudaError_t e2 = cudaStreamGetCaptureInfo_v2(b, &status, &bGraphId, nullptr, &bNodes, &bCount);
+      if (e2 == cudaErrorStubLibrary) {
+        WARN("CUDA driver >= 13.0 removed cudaStreamGetCaptureInfo_v2, graph capture not supported.");
+        return ncclInvalidUsage;
+      }
+      CUDACHECK(e2);
       if (status != cudaStreamCaptureStatusActive || graph.graphId != bGraphId) {
         WARN("Stream is not being captured by the expected graph.");
         return ncclInvalidUsage;
@@ -379,9 +391,10 @@ ncclResult_t ncclStrongStreamWaitStream(
     } else {
       struct ncclStrongStreamGraph* bg = b->graphHead;
       NCCLCHECK(checkGraphId(bg, graph.graphId));
-      CUDACHECK(cudaStreamUpdateCaptureDependencies(a, bg->tipNodes, bg->tipCount,
+      cudaError_t e3 = cudaStreamUpdateCaptureDependencies(a, bg->tipNodes, bg->tipCount,
         b_subsumes_a ? cudaStreamSetCaptureDependencies : cudaStreamAddCaptureDependencies
-      ));
+      );
+      if (e3 != cudaErrorStubLibrary) CUDACHECK(e3);
     }
   #else
     CUDACHECK(cudaEventRecord(b->scratchEvent, b->cudaStream));
