@@ -229,7 +229,12 @@ for group_name, info in sorted(group_info.items()):
   with open(os.path.join(gensrc, f"{group_name}_register.cc"), "w") as f:
     out = f.write
     out('#include "device.h"\n')
-    out('#include <cuda_runtime.h>\n\n')
+    out('#include <cuda_runtime.h>\n')
+    # Forward-declare the shared memory setters defined in per-op .cu files
+    for name in sorted(info["files"]):
+      base = name.replace('.cu', '')
+      out(f'extern "C" void ncclOpSetShmem_{base}(int smem);\n')
+    out('\n')
     
     # Forward declarations for kernels used in this group
     seen_kernels = set()
@@ -249,9 +254,8 @@ for group_name, info in sorted(group_info.items()):
       out(f"  (void*){sym},\n")
     out(f"  nullptr\n}};\n\n")
     
-    # Launch function — delegates cudaLaunchKernel to per-op .so (nvcc-compiled).
-    # Shared memory: cudaFuncSetAttribute for MaxDynamicSharedMemorySize is broken
-    # across .so boundaries in CUDA (INVALID_RESOURCE_HANDLE). See known issue.
+    # Launch function — simple delegate to cudaLaunchKernel.
+    # Shared memory attribute is set in the .cu file (same CUDA module as kernel).
     out(f"static void ncclOpLaunch_{group_name}(void* fn, dim3 grid, dim3 block, void** args, size_t smem, cudaStream_t stream) {{\n")
     out(f"  cudaLaunchKernel(fn, grid, block, args, smem, stream);\n")
     out(f"}}\n")
@@ -259,6 +263,13 @@ for group_name, info in sorted(group_info.items()):
     # Offsets into the global tables — compute from primary_to_index
     out(f"// Register this group's device functions and kernels with the main runtime\n")
     out(f"extern \"C\" __attribute__((visibility(\"default\"))) void ncclOpRegister_{group_name}() {{\n")
+    # Set shared memory on kernels BEFORE registering them.
+    # ncclOpSetShmem_* functions are defined in the .cu files (same CUDA module).
+    out(f"  int _ncclSmem = ncclShmemDynamicSize(860); // sm_86\n")
+    for name in sorted(info["files"]):
+      base = name.replace('.cu', '')
+      out(f"  ncclOpSetShmem_{base}(_ncclSmem);\n")
+    out(f"  \n")
     
     # Register func→kernel mappings for each primary function in this group
     # Pass the launch function so main .so delegates cudaLaunchKernel to this .so
@@ -311,7 +322,7 @@ with open(os.path.join(gensrc, "register_rules.mk"), "w") as f:
   out = f.write
   for group_name in sorted(group_info.keys()):
     out(f"$(OBJDIR)/genobj/{group_name}_register.o: $(OBJDIR)/gensrc/{group_name}_register.cc\n")
-    out(f"\t$(call COMPILE.cc,$@,$<)\n\n")
+    out(f"\t$(NVCC) $(NVCUFLAGS) -dc $< -o $@\n\n")
 
 # ===== Generate the original .cu files =====
 with open(os.path.join(gensrc, "rules.mk"), "w") as f:
@@ -370,6 +381,25 @@ for name in name_to_funcs.keys():
       )
       if (cudart, arch) != (0, 0):
         out("#endif\n")
+
+    # Add shared memory attribute setter — MUST be in same .cu as kernel definitions.
+    # cudaFuncSetAttribute only works when called from the same CUDA module
+    # as the kernel definition. Cross-.so calls fail with INVALID_RESOURCE_HANDLE.
+    # Always define the function (even if kfns is empty) so the register file
+    # can call it unconditionally.
+    out('\n// Per-op shared memory init — called from register function after dlopen.\n')
+    out('// Uses LOCAL kernel symbols (same .cu, same CUDA module).\n')
+    out('#include <cuda_runtime.h>\n')
+    out('extern "C" __attribute__((visibility("default"))) void %s(int smem) {\n'
+        % ('ncclOpSetShmem_' + name.replace('.cu', '')))
+    if kfns:
+      seen = set()
+      for kfn in kfns:
+        sym = paste("_", "ncclDevKernel", *kfn)
+        if sym in seen: continue
+        seen.add(sym)
+        out('  cudaFuncSetAttribute((const void*)%s, cudaFuncAttributeMaxDynamicSharedMemorySize, smem);\n' % sym)
+    out('}\n')
 
 print(f"Generated {len(group_info)} groups in {gensrc}/group_info.json")
 print(f"Simple ops: {sum(1 for v in group_info.values() if v['coll'] in ('AllGather','Broadcast','SendRecv'))}")
