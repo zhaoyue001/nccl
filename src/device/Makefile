@@ -23,7 +23,7 @@ DEVGLUE_OBJ  := $(OBJDIR)/device_glue.o
 DEVGLUE_GROUP := $(OBJDIR)/device_glue_group.o  # lightweight glue for per-group .so
 
 INCFLAGS  = -I. -I.. -I$(BUILDDIR)/include -I../include
-NVCUFLAGS += $(INCFLAGS) --compiler-options "-fPIC -fvisibility=hidden"
+NVCUFLAGS += $(INCFLAGS) --compiler-options "-fPIC"
 CXXFLAGS  += $(INCFLAGS)
 
 SAY = @bash -c 'path="$$2"; [[ "$$(realpath "$$2")" =~ ^$(subst .,\\.,$(abspath $(NCCLDIR)))/(.*)$$ ]] && path="$${BASH_REMATCH[1]}"; printf "%-15s %s\n" "$$1" "$$path"' SAY

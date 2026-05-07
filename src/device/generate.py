@@ -226,7 +226,7 @@ for group_name, info in sorted(group_info.items()):
   fns = info["funcs"]
   kfns = info["kernels"]
   
-  with open(os.path.join(gensrc, f"{group_name}_register.cc"), "w") as f:
+  with open(os.path.join(gensrc, f"{group_name}_register.cu"), "w") as f:
     out = f.write
     out('#include "device.h"\n')
     out('#include <cuda_runtime.h>\n')
@@ -296,23 +296,19 @@ with open(os.path.join(gensrc, "group_build.mk"), "w") as f:
   out(f"OPSDIR := $(BUILDDIR)/ops\n")
   out(f"GROUPS := {' '.join(sorted(group_info.keys()))}\n\n")
   
-  common_o = "$(OBJDIR)/common.cu.o"
-  onerank_o = "$(OBJDIR)/onerank.cu.o"
+  common_src = "common.cu"
+  onerank_src = "onerank.cu"
   
   for group_name, info in sorted(group_info.items()):
     files = sorted(info["files"])
-    cu_objs = " ".join(f"$(OBJDIR)/genobj/{f}.o" for f in files)
-    group_glue = f"$(OBJDIR)/genobj/{group_name}_glue.o"
+    cu_srcs = " ".join(f"$(OBJDIR)/gensrc/{f}" for f in files)
+    register_src = f"$(OBJDIR)/gensrc/{group_name}_register.cu"
     
-    out(f"# --- {group_name} (self-contained) ---\n")
-    out(f"{group_glue}: {cu_objs} {common_o} {onerank_o}\n")
-    out(f"\t@printf \"%-15s %s\\n\" \"Dlink\" \"{group_name}\"\n")
-    out(f"\t$(NVCC) $(NVCUFLAGS) -dlink {cu_objs} {common_o} {onerank_o} -o $@\n\n")
-    
-    out(f"$(OPSDIR)/nccl_{group_name}.so: {group_glue} $(OBJDIR)/genobj/{group_name}_register.o {cu_objs} {common_o} {onerank_o}\n")
-    out(f"\t@printf \"%-15s %s\\n\" \"Linking\" \"{group_name}\"\n")
+    out(f"# --- {group_name} (source-to-so) ---\n")
+    out(f"$(OPSDIR)/nccl_{group_name}.so: {cu_srcs} {register_src} {common_src} {onerank_src}\n")
+    out(f"\t@printf \"%-15s %s\\n\" \"Building\" \"{group_name}\"\n")
     out(f"\t@mkdir -p $(OPSDIR)\n")
-    out(f"\t$(NVCC) -shared -o $@ $(OBJDIR)/genobj/{group_name}_register.o {cu_objs} {common_o} {onerank_o} {group_glue} -L$(BUILDDIR)/lib -lnccl -Xlinker -rpath -Xlinker $(BUILDDIR)/lib\n\n")
+    out(f"\t$(NVCC) -shared $(NVCUFLAGS) -DNCCL_SOURCE_TO_SO -o $@ {cu_srcs} {register_src} {common_src} {onerank_src} -L$(BUILDDIR)/lib -lnccl -Xlinker -rpath -Xlinker $(BUILDDIR)/lib\n\n")
   
   out(f"ops: $(GROUPS:%=$(OPSDIR)/nccl_%.so)\n")
   out(f".PHONY: ops\n")
@@ -321,7 +317,7 @@ with open(os.path.join(gensrc, "group_build.mk"), "w") as f:
 with open(os.path.join(gensrc, "register_rules.mk"), "w") as f:
   out = f.write
   for group_name in sorted(group_info.keys()):
-    out(f"$(OBJDIR)/genobj/{group_name}_register.o: $(OBJDIR)/gensrc/{group_name}_register.cc\n")
+    out(f"$(OBJDIR)/genobj/{group_name}_register.o: $(OBJDIR)/gensrc/{group_name}_register.cu\n")
     out(f"\t$(NVCC) $(NVCUFLAGS) -dc $< -o $@\n\n")
 
 # ===== Generate the original .cu files =====
